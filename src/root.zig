@@ -12,6 +12,10 @@ pub const channel = @import("channel.zig");
 pub const io = @import("io.zig");
 pub const examples = @import("examples.zig");
 pub const simple = @import("simple.zig");
+pub const scheduler = @import("scheduler.zig");
+pub const event_loop = @import("event_loop.zig");
+pub const zquic_integration = @import("zquic_integration.zig");
+pub const async_runtime = @import("async_runtime.zig");
 
 // Re-export commonly used types and functions
 pub const Runtime = runtime.Runtime;
@@ -21,11 +25,30 @@ pub const Waker = task.Waker;
 pub const Reactor = reactor.Reactor;
 pub const TimerWheel = timer.TimerWheel;
 pub const TimerHandle = timer.TimerHandle;
+pub const AsyncScheduler = scheduler.AsyncScheduler;
+pub const EventLoop = event_loop.EventLoop;
+pub const TaskPriority = scheduler.TaskPriority;
+pub const AsyncRuntime = async_runtime.AsyncRuntime;
+pub const TaskHandle = async_runtime.TaskHandle;
+pub const Sleep = async_runtime.Sleep;
 
 // Convenience functions
 pub const run = runtime.run;
+pub const runHighPerf = runtime.runHighPerf;
+pub const runIoFocused = runtime.runIoFocused; // Perfect for zquic!
 pub const spawn = runtime.spawn;
+pub const spawnUrgent = runtime.spawnUrgent;
+pub const spawnAsync = runtime.spawnAsync; // New async spawn with TaskHandle
 pub const sleep = runtime.sleep;
+pub const asyncSleep = runtime.asyncSleep; // True async sleep
+pub const blockOn = runtime.blockOn; // Block on async function
+pub const registerIo = runtime.registerIo;
+pub const getStats = runtime.getStats;
+
+// Global async runtime functions
+pub const globalSpawn = async_runtime.spawn;
+pub const globalSleep = async_runtime.sleep;
+pub const yieldNow = async_runtime.yield_now;
 
 // Channel creation functions
 pub const bounded = channel.bounded;
