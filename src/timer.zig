@@ -88,7 +88,7 @@ pub const TimerWheel = struct {
         defer self.mutex.unlock();
 
         const timer_id = self.nextTimerId();
-        const expiry_time = self.getRelativeTimeMs() + delay_ms;
+        const expiry_time = getCurrentTimeMs() + delay_ms;
 
         const entry = TimerEntry{
             .id = timer_id,
@@ -139,7 +139,7 @@ pub const TimerWheel = struct {
         self.mutex.lock();
         defer self.mutex.unlock();
 
-        const current_time = self.getRelativeTimeMs();
+        const current_time = getCurrentTimeMs();
         var processed: u32 = 0;
 
         // Process timers from the front of the sorted list
@@ -207,7 +207,7 @@ pub const TimerWheel = struct {
 
         const timer_id = self.sorted_timers.items[0];
         if (self.timers.get(timer_id)) |timer| {
-            const current_time = self.getRelativeTimeMs();
+            const current_time = getCurrentTimeMs();
             if (timer.expiry_time > current_time) {
                 return timer.expiry_time - current_time;
             }

@@ -16,6 +16,7 @@ pub const scheduler = @import("scheduler.zig");
 pub const event_loop = @import("event_loop.zig");
 pub const zquic_integration = @import("zquic_integration.zig");
 pub const async_runtime = @import("async_runtime.zig");
+pub const connection_pool = @import("connection_pool.zig");
 
 // Re-export commonly used types and functions
 pub const Runtime = runtime.Runtime;
@@ -31,6 +32,8 @@ pub const TaskPriority = scheduler.TaskPriority;
 pub const AsyncRuntime = async_runtime.AsyncRuntime;
 pub const TaskHandle = async_runtime.TaskHandle;
 pub const Sleep = async_runtime.Sleep;
+pub const ConnectionPool = connection_pool.ConnectionPool;
+pub const PoolConfig = connection_pool.PoolConfig;
 
 // Convenience functions
 pub const run = runtime.run;

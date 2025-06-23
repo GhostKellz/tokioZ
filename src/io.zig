@@ -4,6 +4,7 @@
 const std = @import("std");
 const reactor = @import("reactor.zig");
 const runtime = @import("runtime.zig");
+const scheduler = @import("scheduler.zig");
 
 /// Async TCP stream
 pub const TcpStream = struct {
@@ -29,16 +30,20 @@ pub const TcpStream = struct {
         // Attempt connection
         std.posix.connect(fd, &address.any, address.getOsSockLen()) catch |err| switch (err) {
             error.WouldBlock => {
+                // Create waker for current task
+                const waker = runtime_instance.event_loop_instance.scheduler_instance.createWaker(0); // TODO: Get actual task ID
+                
                 // Register for write readiness
-                try runtime_instance.reactor.register(.{
-                    .fd = fd,
-                    .events = .{ .writable = true },
-                });
+                try runtime_instance.registerIo(fd, .{ .writable = true }, &waker);
 
-                // Suspend until writable
-                suspend {
-                    // In a real implementation, we'd register a waker
-                }
+                // Yield execution until ready
+                scheduler.yield();
+                
+                // Retry connection after wakeup
+                std.posix.connect(fd, &address.any, address.getOsSockLen()) catch |retry_err| switch (retry_err) {
+                    error.Already, error.AlreadyConnected => {}, // Connection completed
+                    else => return retry_err,
+                };
             },
             else => return err,
         };
@@ -58,16 +63,15 @@ pub const TcpStream = struct {
         while (true) {
             const bytes_read = std.posix.read(self.fd, buffer) catch |err| switch (err) {
                 error.WouldBlock => {
+                    // Get runtime for waker creation
+                    const runtime_instance = runtime.Runtime.global() orelse return error.NoRuntime;
+                    const waker = runtime_instance.event_loop_instance.scheduler_instance.createWaker(0); // TODO: Get actual task ID
+                    
                     // Register for read readiness
-                    try self.reactor.register(.{
-                        .fd = self.fd,
-                        .events = .{ .readable = true },
-                    });
+                    try runtime_instance.registerIo(self.fd, .{ .readable = true }, &waker);
 
-                    // Suspend until readable
-                    suspend {
-                        // In a real implementation, we'd register a waker
-                    }
+                    // Yield execution until ready
+                    scheduler.yield();
                     continue;
                 },
                 else => return err,
@@ -82,16 +86,15 @@ pub const TcpStream = struct {
         while (true) {
             const bytes_written = std.posix.write(self.fd, data) catch |err| switch (err) {
                 error.WouldBlock => {
+                    // Get runtime for waker creation
+                    const runtime_instance = runtime.Runtime.global() orelse return error.NoRuntime;
+                    const waker = runtime_instance.event_loop_instance.scheduler_instance.createWaker(0); // TODO: Get actual task ID
+                    
                     // Register for write readiness
-                    try self.reactor.register(.{
-                        .fd = self.fd,
-                        .events = .{ .writable = true },
-                    });
+                    try runtime_instance.registerIo(self.fd, .{ .writable = true }, &waker);
 
-                    // Suspend until writable
-                    suspend {
-                        // In a real implementation, we'd register a waker
-                    }
+                    // Yield execution until ready
+                    scheduler.yield();
                     continue;
                 },
                 else => return err,

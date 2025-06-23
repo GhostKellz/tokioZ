@@ -163,21 +163,12 @@ pub const EventLoop = struct {
         self.start_time = @intCast(std.time.microTimestamp());
         std.debug.print("🚀 TokioZ Event Loop started\n", .{});
 
-        // Add a maximum runtime of 5 seconds to prevent infinite loops
-        const max_runtime_ms = 5000;
+        // Main event loop - runs until explicitly stopped
         var iterations: u32 = 0;
-        const max_iterations = 1000; // Safety limit
 
-        while (!self.should_stop.load(.acquire) and iterations < max_iterations) {
+        while (!self.should_stop.load(.acquire)) {
             const tick_start = std.time.microTimestamp();
             iterations += 1;
-            
-            // Check if we've exceeded max runtime
-            const current_runtime = @as(u64, @intCast(tick_start - @as(i64, @intCast(self.start_time)))) / 1000;
-            if (current_runtime > max_runtime_ms) {
-                std.debug.print("⏰ Event loop reached maximum runtime ({}ms), shutting down\n", .{max_runtime_ms});
-                break;
-            }
             
             // Step 1: Process ready tasks
             const tasks_processed = try self.processTasks();
@@ -216,9 +207,7 @@ pub const EventLoop = struct {
             }
         }
 
-        if (iterations >= max_iterations) {
-            std.debug.print("⚠️  Event loop reached maximum iterations, shutting down\n", .{});
-        }
+        // Event loop completed normally
 
         std.debug.print("✅ TokioZ Event Loop stopped after {} iterations\n", .{iterations});
         self.printStats();

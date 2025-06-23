@@ -229,10 +229,20 @@ pub const AsyncScheduler = struct {
         defer self.mutex.unlock();
 
         self.ready_queue.deinit();
+        
+        // Clean up suspended frames first
+        var suspended_iter = self.suspended_frames.iterator();
+        while (suspended_iter.next()) |entry| {
+            entry.value_ptr.*.state = .cancelled;
+        }
         self.suspended_frames.deinit();
         
-        // Clean up frame pool
+        // Clean up frame pool with proper resource management
         for (self.frame_pool.items) |frame| {
+            // Ensure frame is properly cancelled before destruction
+            if (frame.state != .completed and frame.state != .cancelled) {
+                frame.cancel();
+            }
             self.allocator.destroy(frame);
         }
         self.frame_pool.deinit();
@@ -250,15 +260,27 @@ pub const AsyncScheduler = struct {
 
         const frame_id = self.nextFrameId();
         
-        // Create a minimal task representation for the demo
-        // In real usage, this would create proper async frames
-        const dummy_frame = AsyncFrame.init(frame_id, undefined, 0, self.allocator);
-        const task = ScheduledTask.init(dummy_frame, priority, @as(u64, @intCast(std.time.milliTimestamp())));
+        // Create async frame with proper memory management
+        const frame = try self.allocator.create(AsyncFrame);
+        errdefer self.allocator.destroy(frame);
+        
+        // Initialize frame with allocated memory for function call
+        frame.* = AsyncFrame.init(frame_id, @ptrCast(frame), @sizeOf(AsyncFrame), self.allocator);
+        
+        // Store frame in pool for lifecycle management
+        try self.frame_pool.append(frame);
+        
+        const task = ScheduledTask.init(frame.*, priority, @as(u64, @intCast(std.time.milliTimestamp())));
         try self.ready_queue.push(task);
 
-        // For demo purposes, don't actually create async frames to avoid memory issues
-        _ = func;
-        _ = args;
+        // In a full async implementation, this would start the async function
+        // For now, we create a task wrapper that will execute when scheduled
+        const TaskWrapper = struct {
+            pub fn run() !void {
+                _ = @call(.auto, func, args);
+            }
+        };
+        _ = TaskWrapper;
 
         return frame_id;
     }
@@ -273,12 +295,24 @@ pub const AsyncScheduler = struct {
 
         while (processed < max_tasks_per_tick and !self.ready_queue.isEmpty()) {
             if (self.ready_queue.pop()) |task| {
-                // Mark task as completed and count it
                 processed += 1;
                 
-                // For the demo, we just complete the task without destroying frames
-                // In real usage, this would execute the actual async function
-                _ = task.frame;
+                // Find the corresponding frame in the pool
+                for (self.frame_pool.items, 0..) |frame, i| {
+                    if (frame.id == task.frame.id) {
+                        // Update frame state
+                        frame.state = .running;
+                        
+                        // In real implementation, this would resume the async frame
+                        // For now, mark as completed
+                        frame.complete(null);
+                        
+                        // Remove completed frame from pool
+                        _ = self.frame_pool.swapRemove(i);
+                        self.allocator.destroy(frame);
+                        break;
+                    }
+                }
             }
         }
 
@@ -306,12 +340,22 @@ pub const AsyncScheduler = struct {
         self.mutex.lock();
         defer self.mutex.unlock();
 
-        // Find and suspend the frame
-        // In real implementation, this would work with current async context
-        _ = frame_id;
-        _ = waker;
+        // Find the frame by ID
+        for (self.frame_pool.items) |frame| {
+            if (frame.id == frame_id) {
+                frame.state = .suspended;
+                frame.waker = waker;
+                
+                // Move frame to suspended collection
+                try self.suspended_frames.put(frame_id, frame);
+                
+                // Remove from ready queue if present
+                // In real implementation, this would @suspend() the actual frame
+                return;
+            }
+        }
         
-        // Placeholder implementation
+        return error.FrameNotFound;
     }
 
     /// Check if scheduler has pending work

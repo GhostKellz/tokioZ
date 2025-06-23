@@ -114,14 +114,36 @@ pub fn Channel(comptime T: type) type {
 
             // Check if we have space
             const element_size = @sizeOf(MessageType);
-            while (self.buffer.len() + element_size > self.buffer.data.len) {
+            if (self.buffer.len() + element_size > self.buffer.data.len) {
                 if (self.capacity == .bounded) {
                     return ChannelError.ChannelFull;
                 }
                 
-                // For unbounded channels, we should expand the buffer
-                // For now, we'll return an error
-                return ChannelError.ChannelFull;
+                // For unbounded channels, expand the buffer
+                const old_capacity = self.buffer.data.len;
+                const new_capacity = old_capacity * 2;
+                const new_buffer = try self.allocator.alloc(u8, new_capacity);
+                
+                // Copy existing data if any
+                const old_len = self.buffer.len();
+                if (old_len > 0) {
+                    // Read all existing data
+                    const temp_data = try self.allocator.alloc(u8, old_len);
+                    defer self.allocator.free(temp_data);
+                    
+                    _ = self.buffer.readFirst(temp_data) catch unreachable;
+                    
+                    // Free old buffer
+                    self.allocator.free(self.buffer.data);
+                    
+                    // Setup new buffer and write back data
+                    self.buffer = std.RingBuffer.init(new_buffer);
+                    self.buffer.writeSlice(temp_data) catch unreachable;
+                } else {
+                    // No existing data, just replace buffer
+                    self.allocator.free(self.buffer.data);
+                    self.buffer = std.RingBuffer.init(new_buffer);
+                }
             }
 
             const message = MessageType{
@@ -132,6 +154,7 @@ pub fn Channel(comptime T: type) type {
             const bytes = std.mem.asBytes(&message);
             self.buffer.writeSlice(bytes) catch return ChannelError.ChannelFull;
             
+            // Signal while still holding the lock to prevent race conditions
             self.not_empty.signal();
         }
 

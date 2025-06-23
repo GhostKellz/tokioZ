@@ -26,18 +26,31 @@ pub const Event = struct {
     user_data: usize,
 };
 
+/// Reactor configuration
+pub const ReactorConfig = struct {
+    max_events: u32 = 1024,
+    use_io_uring: bool = false, // Future feature
+};
+
 /// Cross-platform reactor implementation
 pub const Reactor = struct {
     allocator: std.mem.Allocator,
     backend: Backend,
+    config: ReactorConfig,
 
     const Self = @This();
 
     /// Initialize the reactor
     pub fn init(allocator: std.mem.Allocator) !Self {
+        return Self.initWithConfig(allocator, .{});
+    }
+    
+    /// Initialize the reactor with configuration
+    pub fn initWithConfig(allocator: std.mem.Allocator, config: ReactorConfig) !Self {
         return Self{
             .allocator = allocator,
-            .backend = try Backend.init(allocator),
+            .backend = try Backend.initWithConfig(allocator, config),
+            .config = config,
         };
     }
 
@@ -89,11 +102,14 @@ const EpollBackend = struct {
     event_index: u32,
 
     const Self = @This();
-    const max_events = 1024;
 
     pub fn init(allocator: std.mem.Allocator) !Self {
+        return Self.initWithConfig(allocator, .{});
+    }
+    
+    pub fn initWithConfig(allocator: std.mem.Allocator, config: ReactorConfig) !Self {
         const epoll_fd = try std.posix.epoll_create1(std.os.linux.EPOLL.CLOEXEC);
-        const events = try allocator.alloc(std.os.linux.epoll_event, max_events);
+        const events = try allocator.alloc(std.os.linux.epoll_event, config.max_events);
 
         return Self{
             .allocator = allocator,
@@ -187,11 +203,14 @@ const KqueueBackend = struct {
     event_index: u32,
 
     const Self = @This();
-    const max_events = 1024;
 
     pub fn init(allocator: std.mem.Allocator) !Self {
+        return Self.initWithConfig(allocator, .{});
+    }
+    
+    pub fn initWithConfig(allocator: std.mem.Allocator, config: ReactorConfig) !Self {
         const kqueue_fd = try std.posix.kqueue();
-        const events = try allocator.alloc(std.posix.Kevent, max_events);
+        const events = try allocator.alloc(std.posix.Kevent, config.max_events);
 
         return Self{
             .allocator = allocator,
@@ -265,8 +284,19 @@ const KqueueBackend = struct {
             },
         };
 
-        // Ignore errors since the fd might not be registered for both read and write
-        _ = std.posix.kevent(self.kqueue_fd, &changes, &[_]std.posix.Kevent{}, null) catch {};
+        // Attempt to unregister events, but don't fail if fd was not registered
+        const result = std.posix.kevent(self.kqueue_fd, &changes, &[_]std.posix.Kevent{}, null);
+        if (result) |_| {
+            // Successfully unregistered
+        } else |err| switch (err) {
+            error.FileDescriptorNotFound => {
+                // Expected for fd not registered for this event type
+            },
+            else => {
+                // Log error but don't fail - could be a genuine issue
+                std.log.warn("Failed to unregister fd {}: {}", .{ fd, err });
+            },
+        }
     }
 
     pub fn poll(self: *Self, timeout_ms: i32) !u32 {
@@ -312,6 +342,11 @@ const PollBackend = struct {
     const Self = @This();
 
     pub fn init(allocator: std.mem.Allocator) !Self {
+        return Self.initWithConfig(allocator, .{});
+    }
+    
+    pub fn initWithConfig(allocator: std.mem.Allocator, config: ReactorConfig) !Self {
+        _ = config; // PollBackend doesn't need max_events configuration
         return Self{
             .allocator = allocator,
             .poll_fds = std.ArrayList(std.posix.pollfd).init(allocator),
